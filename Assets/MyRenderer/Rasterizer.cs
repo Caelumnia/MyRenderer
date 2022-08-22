@@ -37,7 +37,7 @@ namespace MyRenderer
             _tempColor = new Color[bufferSize];
             _tempDepth = new float[bufferSize];
         }
-        
+
         public void Clear(BufferMask mask)
         {
             if (mask.HasFlag(BufferMask.Color))
@@ -94,9 +94,9 @@ namespace MyRenderer
         public void Clear()
         {
             Profiler.BeginSample("MyRenderer::Rasterizer::Clear");
-            
+
             FrameBuffer.Clear(BufferMask.Color | BufferMask.Depth);
-            
+
             Profiler.EndSample();
         }
 
@@ -116,7 +116,7 @@ namespace MyRenderer
             float3 up = transform.up.normalized;
             lookAt.z *= -1;
             up.z *= -1;
-            _uniforms.MatView = float4x4.LookAt(-_uniforms.WSCameraPos, lookAt, up);
+            _uniforms.MatView = GetViewMatrix(_uniforms.WSCameraPos, lookAt, up);
 
             float aspect = (float) _width / _height;
             float near = -camera.nearClipPlane;
@@ -129,19 +129,20 @@ namespace MyRenderer
             }
             else
             {
-                _uniforms.MatProjection = float4x4.PerspectiveFov(camera.fieldOfView, aspect, near, far);
+                // _uniforms.MatProjection = float4x4.PerspectiveFov(camera.fieldOfView, aspect, near, far);
+                _uniforms.MatProjection = GetPerspectiveProjectionMatrix(camera.fieldOfView, aspect, near, far);
             }
         }
 
         public void Draw(RenderProxy proxy)
         {
             Profiler.BeginSample("MyRenderer::Rasterizer::Draw");
-            
+
             var transform = proxy.transform;
             var position = transform.position;
             position.z *= -1;
             _uniforms.MatModel = float4x4.TRS(position, Quaternion.Inverse(transform.rotation), transform.lossyScale);
-            
+
             var VaryingsArray = new NativeArray<Varyings>(proxy.mesh.vertexCount, Allocator.TempJob);
             var VS = new VertexShader()
             {
@@ -162,28 +163,65 @@ namespace MyRenderer
                 DepthBuffer = FrameBuffer.DepthBuffer,
             };
             var PSHandle = PS.Schedule(proxy.Attributes.Indices.Length, 1, VSHandle);
-            
+
             VSHandle.Complete();
             PSHandle.Complete();
             VaryingsArray.Dispose();
-            
+
             Profiler.EndSample();
         }
 
         public void Flush()
         {
             Profiler.BeginSample("MyRenderer::Rasterizer::Flush");
-            
+
             FrameBuffer.Flush();
-            
+
             Profiler.EndSample();
         }
-        
+
         public static float4x4 GetViewMatrix(float3 eye, float3 lookAt, float3 up)
         {
-            float4x4 result;
+            float3 camZ = -math.normalize(lookAt);
+            float3 camY = math.normalize(up);
+            float3 camX = math.cross(camY, camZ);
+            camY = math.cross(camZ, camX);
 
-            return result;
+            return new float4x4(
+                new float4(camX, 0.0f),
+                new float4(camY, 0.0f),
+                new float4(camZ, 0.0f),
+                new float4(-eye, 1.0f)
+            );
+        }
+
+        public static float4x4 GetPerspectiveProjectionMatrix(float fov, float aspect, float near, float far)
+        {
+            float4x4 result = float4x4.identity;
+            
+            float t = near * math.tan(math.radians(fov * 0.5f));
+            float b = -t;
+            float r = t * aspect;
+            float l = -r;
+            float n = -near;
+            float f = -far;
+            
+            result.c0.x = n;
+            result.c1.y = n;
+            result.c2.z = n + f;
+            result.c2.w = -n * f;
+            result.c3.z = 1;
+            result.c3.w = 0;
+            
+            Matrix4x4 translate = Matrix4x4.identity;
+            translate.SetColumn(3, new Vector4(-(r + l) * 0.5f, -(t + b) * 0.5f, -(n + f) * 0.5f, 1f));
+            Matrix4x4 scale = Matrix4x4.identity;
+            scale.m00 = 2f / (r - l);
+            scale.m11 = 2f / (t - b);
+            scale.m22 = 2f / (n - f);
+            float4x4 ortho = scale * translate;
+            
+            return ortho * result;
         }
     }
 }
