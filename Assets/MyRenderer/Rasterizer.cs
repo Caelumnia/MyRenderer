@@ -119,8 +119,8 @@ namespace MyRenderer
             _uniforms.MatView = GetViewMatrix(_uniforms.WSCameraPos, lookAt, up);
 
             float aspect = (float) _width / _height;
-            float near = -camera.nearClipPlane;
-            float far = -camera.farClipPlane;
+            float near = camera.nearClipPlane;
+            float far = camera.farClipPlane;
             if (camera.orthographic)
             {
                 float height = camera.orthographicSize * 2;
@@ -141,7 +141,7 @@ namespace MyRenderer
             var transform = proxy.transform;
             var position = transform.position;
             position.z *= -1;
-            _uniforms.MatModel = float4x4.TRS(position, Quaternion.Inverse(transform.rotation), transform.lossyScale);
+            _uniforms.MatModel = proxy.GetModelMatrix();
 
             var VaryingsArray = new NativeArray<Varyings>(proxy.mesh.vertexCount, Allocator.TempJob);
             var VS = new VertexShader()
@@ -186,42 +186,42 @@ namespace MyRenderer
             float3 camY = math.normalize(up);
             float3 camX = math.cross(camY, camZ);
             camY = math.cross(camZ, camX);
+            float4x4 rotate = float4x4.identity;
+            rotate.c0 = new float4(camX, 0.0f);
+            rotate.c1 = new float4(camY, 0.0f);
+            rotate.c2 = new float4(camZ, 0.0f);
+            
+            float4x4 translate = float4x4.identity;
+            translate.c3 = new float4(-eye, 1.0f);
 
-            return new float4x4(
-                new float4(camX, 0.0f),
-                new float4(camY, 0.0f),
-                new float4(camZ, 0.0f),
-                new float4(-eye, 1.0f)
-            );
+            return math.mul(math.transpose(rotate), translate);
         }
 
         public static float4x4 GetPerspectiveProjectionMatrix(float fov, float aspect, float near, float far)
         {
-            float4x4 result = float4x4.identity;
-            
+            float n = -near;
+            float f = -far;
             float t = near * math.tan(math.radians(fov * 0.5f));
             float b = -t;
             float r = t * aspect;
             float l = -r;
-            float n = -near;
-            float f = -far;
             
-            result.c0.x = n;
-            result.c1.y = n;
-            result.c2.z = n + f;
-            result.c2.w = -n * f;
-            result.c3.z = 1;
-            result.c3.w = 0;
+            float4x4 orthoToPespect = float4x4.identity;
+            orthoToPespect.c0.x = n;
+            orthoToPespect.c1.y = n;
+            orthoToPespect.c2.z = n + f;
+            orthoToPespect.c3.z = -n * f;
+            orthoToPespect.c2.w = 1;
+            orthoToPespect.c3.w = 0;
             
-            Matrix4x4 translate = Matrix4x4.identity;
-            translate.SetColumn(3, new Vector4(-(r + l) * 0.5f, -(t + b) * 0.5f, -(n + f) * 0.5f, 1f));
-            Matrix4x4 scale = Matrix4x4.identity;
-            scale.m00 = 2f / (r - l);
-            scale.m11 = 2f / (t - b);
-            scale.m22 = 2f / (n - f);
-            float4x4 ortho = scale * translate;
+            float4x4 translate = float4x4.identity;
+            translate.c3 = new float4(r+l, t+b, n+f, -2.0f) * -0.5f;
+            float4x4 scale = float4x4.identity;
+            scale.c0.x = 2f / (r - l);
+            scale.c1.y = 2f / (t - b);
+            scale.c2.z = 2f / (n - f);
             
-            return ortho * result;
+            return math.mul(scale, math.mul(translate, orthoToPespect));
         }
     }
 }

@@ -56,7 +56,7 @@ namespace MyRenderer
             if (Clipped(tempPos)) return;
             if (Backface(tempPos)) return;
 
-            var screen = new float2(Width - 1.0f, Height - 1.0f);
+            var screen = new float2(Width, Height) * 0.5f;
             for (int i = 0; i < 3; ++i)
             {
                 tempPos[i].xy = (tempPos[i].xy + new float2(1.0f, 1.0f)) * screen;

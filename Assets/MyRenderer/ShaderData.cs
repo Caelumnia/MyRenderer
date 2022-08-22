@@ -15,7 +15,7 @@ namespace MyRenderer
         public float4x4 MatView;
         public float4x4 MatProjection;
 
-        public float4x4 MatMVP => MatProjection * MatView * MatModel;
+        public float4x4 MatMVP => math.mul(MatProjection, math.mul(MatView, MatModel));
         public float4x4 MatNormal => math.transpose(math.inverse(MatModel));
     }
 
