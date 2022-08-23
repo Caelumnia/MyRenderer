@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using Unity.Collections;
 using Unity.Jobs;
@@ -18,70 +19,46 @@ namespace MyRenderer
 
     public struct FrameBuffer
     {
-        public NativeArray<Color> ColorBuffer;
-        public NativeArray<float> DepthBuffer;
+        public NativeBuffer<Color> ColorBuffer;
+        public NativeBuffer<float> DepthBuffer;
 
         public Texture2D ScreenRT;
-
-        private Color[] _tempColor;
-        private float[] _tempDepth;
 
         public FrameBuffer(int width, int height)
         {
             int bufferSize = width * height;
-            ColorBuffer = new NativeArray<Color>(bufferSize, Allocator.Persistent);
-            DepthBuffer = new NativeArray<float>(bufferSize, Allocator.Persistent);
+            ColorBuffer = new NativeBuffer<Color>(bufferSize);
+            DepthBuffer = new NativeBuffer<float>(bufferSize);
             ScreenRT = new Texture2D(width, height)
             {
                 filterMode = FilterMode.Point
             };
-            _tempColor = new Color[bufferSize];
-            _tempDepth = new float[bufferSize];
         }
 
         public void Clear(BufferMask mask)
         {
             if (mask.HasFlag(BufferMask.Color))
             {
-                FillArray(_tempColor, Color.black);
-                ColorBuffer.CopyFrom(_tempColor);
+                ColorBuffer.Fill(Color.black);
             }
 
             if (mask.HasFlag(BufferMask.Depth))
             {
-                FillArray(_tempDepth, 0.0f);
-                DepthBuffer.CopyFrom(_tempDepth);
+                DepthBuffer.Fill(0.0f);
             }
         }
 
-        public void Flush()
+        public void Flush(BufferMask mask = BufferMask.Color)
         {
-            ColorBuffer.CopyTo(_tempColor);
-            ScreenRT.SetPixels(_tempColor);
+            ScreenRT.SetPixels(ColorBuffer.Raw);
             ScreenRT.Apply();
         }
 
         public void Release()
         {
-            ColorBuffer.Dispose();
-            DepthBuffer.Dispose();
+            ColorBuffer.Release();
+            DepthBuffer.Release();
             ScreenRT = null;
-            _tempColor = null;
-            _tempDepth = null;
-        }
-        
-        public static void FillArray<T>(T[] array, T value)
-        {
-            if (array.Length == 0) return;
-
-            int copyLength = 1;
-            array[0] = value;
-            while (copyLength <= array.Length / 2)
-            {
-                Array.Copy(array, 0, array, copyLength, copyLength);
-                copyLength *= 2;
-            }
-            Array.Copy(array, 0, array, copyLength, array.Length - copyLength);
         }
     }
 
@@ -119,14 +96,29 @@ namespace MyRenderer
             Profiler.EndSample();
         }
 
+        public void SetupView(Transform transform)
+        {
+            float3 eye = transform.position;
+            float3 lookAt = transform.forward.normalized;
+            float3 up = transform.up.normalized;
+            eye.z *= -1;
+            lookAt.z *= -1;
+            up.z *= -1;
+
+            _uniforms.MatView = GetViewMatrix(eye, lookAt, up);
+        }
+
         public void SetupUniform(Camera camera, Light mainLight)
         {
             // 着色时在右手坐标系计算，因此 uniforms 的 z 值需要翻转
             var transform = camera.transform;
             _uniforms.WSCameraPos = transform.position;
             _uniforms.WSCameraPos.z *= -1;
-            _uniforms.WSLightDir = -mainLight.transform.forward;
+            var lightTransform = mainLight.transform;
+            _uniforms.WSLightDir = -lightTransform.forward;
             _uniforms.WSLightDir.z *= -1;
+            _uniforms.WSLightPos = lightTransform.position;
+            _uniforms.WSLightPos.z *= -1;
 
             Color lightColor = mainLight.color * mainLight.intensity;
             _uniforms.LightColor = new float4(lightColor.r, lightColor.g, lightColor.b, lightColor.a);
@@ -183,13 +175,13 @@ namespace MyRenderer
                 VaryingsArray = VaryingsArray,
                 Width = _width,
                 Height = _height,
-                ColorBuffer = FrameBuffer.ColorBuffer,
-                DepthBuffer = FrameBuffer.DepthBuffer,
+                ColorBuffer = FrameBuffer.ColorBuffer.Buffer,
+                DepthBuffer = FrameBuffer.DepthBuffer.Buffer,
                 Renderred = Renderred,
             };
             var PSHandle = PS.Schedule(proxy.Attributes.Indices.Length, 2, VSHandle);
             PSHandle.Complete();
-            
+
             foreach (bool b in Renderred)
             {
                 if (b) _triangleCount++;
@@ -222,7 +214,7 @@ namespace MyRenderer
             rotate.c0 = new float4(camX, 0.0f);
             rotate.c1 = new float4(camY, 0.0f);
             rotate.c2 = new float4(camZ, 0.0f);
-            
+
             float4x4 translate = float4x4.identity;
             translate.c3 = new float4(-eye, 1.0f);
 
@@ -233,7 +225,7 @@ namespace MyRenderer
         public static float4x4 GetOrthoMatrix(float l, float r, float b, float t, float f, float n)
         {
             float4x4 translate = float4x4.identity;
-            translate.c3 = new float4(r+l, t+b, n+f, -2.0f) * -0.5f;
+            translate.c3 = new float4(r + l, t + b, n + f, -2.0f) * -0.5f;
             float4x4 scale = float4x4.identity;
             scale.c0.x = 2f / (r - l);
             scale.c1.y = 2f / (t - b);
@@ -251,7 +243,7 @@ namespace MyRenderer
             float b = -t;
             float r = t * aspect;
             float l = -r;
-            
+
             float4x4 perspectiveToOrtho = float4x4.identity;
             perspectiveToOrtho.c0.x = n;
             perspectiveToOrtho.c1.y = n;

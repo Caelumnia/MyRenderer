@@ -74,7 +74,7 @@ namespace MyRenderer.Shaders
                     pos[i] = verts[i].CSPos.xyz / verts[i].CSPos.w;
                 }
 
-                if (Common.Backface(v0, v1, v2)) return;
+                if (Common.Backface(pos[0], pos[1], pos[2])) return;
 
                 var screen = new float2(Width - 1, Height - 1) * 0.5f;
                 for (int i = 0; i < 3; ++i)

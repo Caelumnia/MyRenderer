@@ -48,10 +48,10 @@ namespace MyRenderer.Shaders
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool Backface(float4 v0, float4 v1, float4 v2)
+        public static bool Backface(float3 v0, float3 v1, float3 v2)
         {
-            float3 v01 = (v1 - v0).xyz;
-            float3 v02 = (v2 - v1).xyz;
+            float3 v01 = v1 - v0;
+            float3 v02 = v2 - v0;
             float3 normal = math.cross(v01, v02);
             return normal.z < 0;
         }

@@ -8,6 +8,7 @@ namespace MyRenderer
     public struct UniformBuffer // uniform variables for shading compute
     {
         public float3 WSCameraPos;
+        public float3 WSLightPos;
         public float3 WSLightDir;
         public float4 LightColor;
 
@@ -51,7 +52,7 @@ namespace MyRenderer
             for (int i = 0; i < triangleCount; ++i)
             {
                 int j = i * 3;
-                Indices[i] = new int3(mesh.triangles[j + 2], mesh.triangles[j + 1], mesh.triangles[j]);
+                Indices[i] = new int3(mesh.triangles[j + 1], mesh.triangles[j], mesh.triangles[j + 2]);
             }
         }
 
@@ -75,7 +76,9 @@ namespace MyRenderer
     public struct TriangleVert
     {
         public float4 SSPos;
+
         public float3 WSPos;
+
         // public float3 OSNormal;
         public float3 WSNormal;
         public float4 Color;
@@ -96,7 +99,7 @@ namespace MyRenderer
                     SSPos = new float4(pos[i], verts[i].CSPos.w),
                     WSPos = verts[i].WSPos,
                     WSNormal = verts[i].WSNormal,
-                    Color = new float4(1.0f),
+                    Color = new float4(1.0f - i / 3.0f),
                     TexCoord = verts[i].UV0,
                 };
             }
