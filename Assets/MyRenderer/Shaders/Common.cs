@@ -12,41 +12,46 @@ namespace MyRenderer.Shaders
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static float3 ComputeBarycentric2D(float x, float y, NativeArray<float3> verts)
+        public static float3 ComputeBarycentric2D(float x, float y, float3 v0, float3 v1, float3 v2)
         {
             float3 result;
             result.x =
-                (x * (verts[1].y - verts[2].y) + (verts[2].x - verts[1].x) * y + verts[1].x * verts[2].y -
-                 verts[2].x * verts[1].y) / (verts[0].x * (verts[1].y - verts[2].y) +
-                    (verts[2].x - verts[1].x) * verts[0].y + verts[1].x * verts[2].y - verts[2].x * verts[1].y);
+                (x * (v1.y - v2.y) + (v2.x - v1.x) * y + v1.x * v2.y -
+                 v2.x * v1.y) / (v0.x * (v1.y - v2.y) +
+                    (v2.x - v1.x) * v0.y + v1.x * v2.y - v2.x * v1.y);
             result.y =
-                (x * (verts[2].y - verts[0].y) + (verts[0].x - verts[2].x) * y + verts[2].x * verts[0].y -
-                 verts[0].x * verts[2].y) / (verts[1].x * (verts[2].y - verts[0].y) +
-                    (verts[0].x - verts[2].x) * verts[1].y + verts[2].x * verts[0].y - verts[0].x * verts[2].y);
+                (x * (v2.y - v0.y) + (v0.x - v2.x) * y + v2.x * v0.y -
+                 v0.x * v2.y) / (v1.x * (v2.y - v0.y) +
+                    (v0.x - v2.x) * v1.y + v2.x * v0.y - v0.x * v2.y);
             result.z =
-                (x * (verts[0].y - verts[1].y) + (verts[1].x - verts[0].x) * y + verts[0].x * verts[1].y -
-                 verts[1].x * verts[0].y) / (verts[2].x * (verts[0].y - verts[1].y) +
-                    (verts[1].x - verts[0].x) * verts[2].y + verts[0].x * verts[1].y - verts[1].x * verts[0].y);
+                (x * (v0.y - v1.y) + (v1.x - v0.x) * y + v0.x * v1.y -
+                 v1.x * v0.y) / (v2.x * (v0.y - v1.y) +
+                    (v1.x - v0.x) * v2.y + v0.x * v1.y - v1.x * v0.y);
             return result;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool Clipped(NativeArray<float3> v)
+        public static bool Clipped(float4 v0, float4 v1, float4 v2)
         {
-            if (v[0].x < -1 && v[1].x < -1 && v[2].x < -1) return true;
-            if (v[0].y < -1 && v[1].y < -1 && v[2].y < -1) return true;
-            if (v[0].z < -1 && v[1].z < -1 && v[2].z < -1) return true;
-            if (v[0].x > 1 && v[1].x > 1 && v[2].x > 1) return true;
-            if (v[0].y > 1 && v[1].y > 1 && v[2].y > 1) return true;
-            if (v[0].z > 1 && v[1].z > 1 && v[2].z > 1) return true;
+            var w0 = math.abs(v0.w);
+            var w1 = math.abs(v1.w);
+            var w2 = math.abs(v2.w);
+
+            if (v0.x < -w0 && v1.x < -w1 && v2.x < -w2) return true;
+            if (v0.y < -w0 && v1.y < -w1 && v2.y < -w2) return true;
+            if (v0.z < -w0 && v1.z < -w1 && v2.z < -w2) return true;
+            if (v0.x > w0 && v1.x > w1 && v2.x > w2) return true;
+            if (v0.y > w0 && v1.y > w1 && v2.y > w2) return true;
+            if (v0.z > w0 && v1.z > w1 && v2.z > w2) return true;
+
             return false;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool Backface(NativeArray<float3> v)
+        public static bool Backface(float4 v0, float4 v1, float4 v2)
         {
-            float3 v01 = v[1] - v[0];
-            float3 v02 = v[2] - v[1];
+            float3 v01 = (v1 - v0).xyz;
+            float3 v02 = (v2 - v1).xyz;
             float3 normal = math.cross(v01, v02);
             return normal.z < 0;
         }

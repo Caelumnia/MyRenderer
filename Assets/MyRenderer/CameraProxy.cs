@@ -15,6 +15,7 @@ namespace MyRenderer
         [SerializeField]
         private Light mainLight;
         private Camera _camera;
+        private Stats _stats;
         private Rasterizer _rasterizer;
         private List<RenderProxy> _renderProxies;
         private int _width, _height;
@@ -41,6 +42,12 @@ namespace MyRenderer
 
             _rasterizer = new Rasterizer(_width, _height);
             rawImage.texture = _rasterizer.FrameBuffer.ScreenRT;
+
+            _stats = GetComponent<Stats>();
+            if (_stats != null)
+            {
+                _rasterizer.StatsUpdate += _stats.UpdateStats;
+            }
 
             _isPrepared = true;
         }

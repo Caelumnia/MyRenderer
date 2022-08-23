@@ -43,13 +43,13 @@ namespace MyRenderer
         {
             if (mask.HasFlag(BufferMask.Color))
             {
-                Array.Fill(_tempColor, Color.black);
+                FillArray(_tempColor, Color.black);
                 ColorBuffer.CopyFrom(_tempColor);
             }
 
             if (mask.HasFlag(BufferMask.Depth))
             {
-                Array.Fill(_tempDepth, 0.0f);
+                FillArray(_tempDepth, 0.0f);
                 DepthBuffer.CopyFrom(_tempDepth);
             }
         }
@@ -69,14 +69,31 @@ namespace MyRenderer
             _tempColor = null;
             _tempDepth = null;
         }
+        
+        public static void FillArray<T>(T[] array, T value)
+        {
+            if (array.Length == 0) return;
+
+            int copyLength = 1;
+            array[0] = value;
+            while (copyLength <= array.Length / 2)
+            {
+                Array.Copy(array, 0, array, copyLength, copyLength);
+                copyLength *= 2;
+            }
+            Array.Copy(array, 0, array, copyLength, array.Length - copyLength);
+        }
     }
 
     public class Rasterizer
     {
         public FrameBuffer FrameBuffer;
+        public OnStatsUpdate StatsUpdate;
 
         private int _width, _height;
         private UniformBuffer _uniforms;
+
+        private int _triangleCount, _verticeCount, _triangleAll;
 
         public Rasterizer(int width, int height)
         {
@@ -97,6 +114,7 @@ namespace MyRenderer
             Profiler.BeginSample("MyRenderer::Rasterizer::Clear");
 
             FrameBuffer.Clear(BufferMask.Color | BufferMask.Depth);
+            _triangleCount = _triangleAll = _verticeCount = 0;
 
             Profiler.EndSample();
         }
@@ -138,6 +156,9 @@ namespace MyRenderer
         {
             Profiler.BeginSample("MyRenderer::Rasterizer::Draw");
 
+            _verticeCount += proxy.mesh.vertexCount;
+            _triangleAll += proxy.Attributes.Indices.Length;
+
             var transform = proxy.transform;
             var position = transform.position;
             position.z *= -1;
@@ -147,26 +168,35 @@ namespace MyRenderer
             var VS = new Shaders.BasePass.VertexShader()
             {
                 Attributes = proxy.Attributes,
-                Uniforms = _uniforms,
+                MatMVP = _uniforms.MatMVP,
+                MatModel = _uniforms.MatModel,
+                MatNormal = _uniforms.MatNormal,
                 VaryingsArray = VaryingsArray,
             };
             var VSHandle = VS.Schedule(VaryingsArray.Length, 1);
 
+            var Renderred = new NativeArray<bool>(proxy.Attributes.Indices.Length, Allocator.TempJob);
             var PS = new Shaders.BasePass.PixelShader()
             {
-                Attributes = proxy.Attributes,
+                Indices = proxy.Attributes.Indices,
                 Uniforms = _uniforms,
                 VaryingsArray = VaryingsArray,
                 Width = _width,
                 Height = _height,
                 ColorBuffer = FrameBuffer.ColorBuffer,
                 DepthBuffer = FrameBuffer.DepthBuffer,
+                Renderred = Renderred,
             };
-            var PSHandle = PS.Schedule(proxy.Attributes.Indices.Length, 1, VSHandle);
-
-            VSHandle.Complete();
+            var PSHandle = PS.Schedule(proxy.Attributes.Indices.Length, 2, VSHandle);
             PSHandle.Complete();
+            
+            foreach (bool b in Renderred)
+            {
+                if (b) _triangleCount++;
+            }
+
             VaryingsArray.Dispose();
+            Renderred.Dispose();
 
             Profiler.EndSample();
         }
@@ -176,6 +206,7 @@ namespace MyRenderer
             Profiler.BeginSample("MyRenderer::Rasterizer::Flush");
 
             FrameBuffer.Flush();
+            StatsUpdate(_verticeCount, _triangleCount, _triangleAll);
 
             Profiler.EndSample();
         }

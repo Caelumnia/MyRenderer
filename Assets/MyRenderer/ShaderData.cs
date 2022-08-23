@@ -75,9 +75,7 @@ namespace MyRenderer
     public struct TriangleVert
     {
         public float4 SSPos;
-
         public float3 WSPos;
-
         // public float3 OSNormal;
         public float3 WSNormal;
         public float4 Color;
