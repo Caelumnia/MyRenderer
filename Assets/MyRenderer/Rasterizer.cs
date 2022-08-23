@@ -144,7 +144,7 @@ namespace MyRenderer
             _uniforms.MatModel = proxy.GetModelMatrix();
 
             var VaryingsArray = new NativeArray<Varyings>(proxy.mesh.vertexCount, Allocator.TempJob);
-            var VS = new BasePass.VertexShader()
+            var VS = new Shaders.BasePass.VertexShader()
             {
                 Attributes = proxy.Attributes,
                 Uniforms = _uniforms,
@@ -152,7 +152,7 @@ namespace MyRenderer
             };
             var VSHandle = VS.Schedule(VaryingsArray.Length, 1);
 
-            var PS = new BasePass.PixelShader()
+            var PS = new Shaders.BasePass.PixelShader()
             {
                 Attributes = proxy.Attributes,
                 Uniforms = _uniforms,
