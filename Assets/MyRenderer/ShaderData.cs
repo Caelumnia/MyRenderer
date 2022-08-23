@@ -8,6 +8,9 @@ namespace MyRenderer
     public struct UniformBuffer // uniform variables for shading compute
     {
         public float3 WSCameraPos;
+        public float3 WSCameraLookAt;
+        public float3 WSCameraUp;
+        
         public float3 WSLightPos;
         public float3 WSLightDir;
         public float4 LightColor;

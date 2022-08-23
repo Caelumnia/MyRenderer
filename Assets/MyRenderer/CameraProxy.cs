@@ -40,7 +40,7 @@ namespace MyRenderer
             rect.sizeDelta = new Vector2(_width, _height);
             Debug.Log($"Screen size {_width}x{_height}");
 
-            _rasterizer = new Rasterizer(_width, _height);
+            _rasterizer = new Rasterizer(_width, _height, 1024);
             rawImage.texture = _rasterizer.FrameBuffer.ScreenRT;
 
             _stats = GetComponent<Stats>();
@@ -70,9 +70,16 @@ namespace MyRenderer
             _rasterizer.Clear();
             _rasterizer.SetupUniform(_camera, mainLight);
 
+            _rasterizer.SetupLight(mainLight);
             foreach (var obj in _renderProxies)
             {
-                _rasterizer.Draw(obj);
+                _rasterizer.ShadowPass(obj);
+            }
+            
+            _rasterizer.SetupCamera(_camera);
+            foreach (var obj in _renderProxies)
+            {
+                _rasterizer.BasePass(obj);
             }
             
             _rasterizer.Flush();

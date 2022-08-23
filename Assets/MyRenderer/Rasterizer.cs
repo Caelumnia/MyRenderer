@@ -65,19 +65,22 @@ namespace MyRenderer
     public class Rasterizer
     {
         public FrameBuffer FrameBuffer;
+        public NativeBuffer<float> ShadowMap;
         public OnStatsUpdate StatsUpdate;
 
-        private int _width, _height;
+        private int _width, _height, _smSize;
         private UniformBuffer _uniforms;
 
         private int _triangleCount, _verticeCount, _triangleAll;
 
-        public Rasterizer(int width, int height)
+        public Rasterizer(int width, int height, int smSize)
         {
             _width = width;
             _height = height;
+            _smSize = smSize;
 
             FrameBuffer = new FrameBuffer(_width, _height);
+            ShadowMap = new NativeBuffer<float>(_smSize * _smSize);
             _uniforms = new UniformBuffer();
         }
 
@@ -91,6 +94,7 @@ namespace MyRenderer
             Profiler.BeginSample("MyRenderer::Rasterizer::Clear");
 
             FrameBuffer.Clear(BufferMask.Color | BufferMask.Depth);
+            ShadowMap.Fill(0.0f);
             _triangleCount = _triangleAll = _verticeCount = 0;
 
             Profiler.EndSample();
@@ -110,25 +114,26 @@ namespace MyRenderer
 
         public void SetupUniform(Camera camera, Light mainLight)
         {
-            // 着色时在右手坐标系计算，因此 uniforms 的 z 值需要翻转
             var transform = camera.transform;
             _uniforms.WSCameraPos = transform.position;
             _uniforms.WSCameraPos.z *= -1;
+            _uniforms.WSCameraLookAt = transform.forward.normalized;
+            _uniforms.WSCameraLookAt.z *= -1;
+            _uniforms.WSCameraUp = transform.up.normalized;
+            _uniforms.WSCameraUp.z *= -1;
+
             var lightTransform = mainLight.transform;
-            _uniforms.WSLightDir = -lightTransform.forward;
+            _uniforms.WSLightDir = -lightTransform.forward.normalized;
             _uniforms.WSLightDir.z *= -1;
             _uniforms.WSLightPos = lightTransform.position;
             _uniforms.WSLightPos.z *= -1;
-
             Color lightColor = mainLight.color * mainLight.intensity;
             _uniforms.LightColor = new float4(lightColor.r, lightColor.g, lightColor.b, lightColor.a);
+        }
 
-            float3 lookAt = transform.forward.normalized;
-            float3 up = transform.up.normalized;
-            lookAt.z *= -1;
-            up.z *= -1;
-            _uniforms.MatView = GetViewMatrix(_uniforms.WSCameraPos, lookAt, up);
-
+        public void SetupCamera(Camera camera)
+        {
+            _uniforms.MatView = GetViewMatrix(_uniforms.WSCameraPos, _uniforms.WSCameraLookAt, _uniforms.WSCameraUp);
             float aspect = (float) _width / _height;
             float near = camera.nearClipPlane;
             float far = camera.farClipPlane;
@@ -144,9 +149,45 @@ namespace MyRenderer
             }
         }
 
-        public void Draw(RenderProxy proxy)
+        public void SetupLight(Light light)
         {
-            Profiler.BeginSample("MyRenderer::Rasterizer::Draw");
+            _uniforms.MatView = GetViewMatrix(0.0f, -_uniforms.WSLightDir, new float3(0.0f, 1.0f, 0.0f));
+            float halfWidth = _smSize / 2.0f;
+            _uniforms.MatProjection = GetOrthoMatrix(-halfWidth, halfWidth, -halfWidth, halfWidth,float.NegativeInfinity, float.PositiveInfinity);
+        }
+
+        public void ShadowPass(RenderProxy proxy)
+        {
+            Profiler.BeginSample("MyRenderer::Rasterizer::ShadowPass");
+
+            var CSPosArray = new NativeArray<float4>(proxy.mesh.vertexCount, Allocator.TempJob);
+            var VS = new Shaders.ShadowPass.VertexShader()
+            {
+                PositionArray = proxy.Attributes.Position,
+                MatMVP = _uniforms.MatMVP,
+                CSPosArray = CSPosArray,
+            };
+            var VSHandle = VS.Schedule(CSPosArray.Length, 1);
+
+            var PS = new Shaders.ShadowPass.PixelShader()
+            {
+                Indices = proxy.Attributes.Indices,
+                CSPosArray = CSPosArray,
+                ShadowMap = ShadowMap.Buffer,
+                Width = _width,
+                Height = _height,
+            };
+            var PSHandle = PS.Schedule(proxy.Attributes.Indices.Length, 1, VSHandle);
+            PSHandle.Complete();
+            
+            CSPosArray.Dispose();
+
+            Profiler.EndSample();
+        }
+
+        public void BasePass(RenderProxy proxy)
+        {
+            Profiler.BeginSample("MyRenderer::Rasterizer::BasePass");
 
             _verticeCount += proxy.mesh.vertexCount;
             _triangleAll += proxy.Attributes.Indices.Length;
