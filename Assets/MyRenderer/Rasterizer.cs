@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Runtime.CompilerServices;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
@@ -123,14 +124,13 @@ namespace MyRenderer
             float far = camera.farClipPlane;
             if (camera.orthographic)
             {
-                float height = camera.orthographicSize * 2;
-                float width = aspect * height;
-                _uniforms.MatProjection = float4x4.Ortho(width, height, near, far);
+                float halfHeight = camera.orthographicSize;
+                float halfWidth = aspect * halfHeight;
+                _uniforms.MatProjection = GetOrthoMatrix(-halfWidth, halfWidth, -halfHeight, halfHeight, far, near);
             }
             else
             {
-                // _uniforms.MatProjection = float4x4.PerspectiveFov(camera.fieldOfView, aspect, near, far);
-                _uniforms.MatProjection = GetPerspectiveProjectionMatrix(camera.fieldOfView, aspect, near, far);
+                _uniforms.MatProjection = GetPerspectiveMatrix(camera.fieldOfView, aspect, near, far);
             }
         }
 
@@ -144,7 +144,7 @@ namespace MyRenderer
             _uniforms.MatModel = proxy.GetModelMatrix();
 
             var VaryingsArray = new NativeArray<Varyings>(proxy.mesh.vertexCount, Allocator.TempJob);
-            var VS = new VertexShader()
+            var VS = new BasePass.VertexShader()
             {
                 Attributes = proxy.Attributes,
                 Uniforms = _uniforms,
@@ -152,7 +152,7 @@ namespace MyRenderer
             };
             var VSHandle = VS.Schedule(VaryingsArray.Length, 1);
 
-            var PS = new PixelShader()
+            var PS = new BasePass.PixelShader()
             {
                 Attributes = proxy.Attributes,
                 Uniforms = _uniforms,
@@ -180,6 +180,7 @@ namespace MyRenderer
             Profiler.EndSample();
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float4x4 GetViewMatrix(float3 eye, float3 lookAt, float3 up)
         {
             float3 camZ = -math.normalize(lookAt);
@@ -197,7 +198,21 @@ namespace MyRenderer
             return math.mul(math.transpose(rotate), translate);
         }
 
-        public static float4x4 GetPerspectiveProjectionMatrix(float fov, float aspect, float near, float far)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float4x4 GetOrthoMatrix(float l, float r, float b, float t, float f, float n)
+        {
+            float4x4 translate = float4x4.identity;
+            translate.c3 = new float4(r+l, t+b, n+f, -2.0f) * -0.5f;
+            float4x4 scale = float4x4.identity;
+            scale.c0.x = 2f / (r - l);
+            scale.c1.y = 2f / (t - b);
+            scale.c2.z = 2f / (n - f);
+
+            return math.mul(scale, translate);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float4x4 GetPerspectiveMatrix(float fov, float aspect, float near, float far)
         {
             float n = -near;
             float f = -far;
@@ -206,22 +221,15 @@ namespace MyRenderer
             float r = t * aspect;
             float l = -r;
             
-            float4x4 orthoToPespect = float4x4.identity;
-            orthoToPespect.c0.x = n;
-            orthoToPespect.c1.y = n;
-            orthoToPespect.c2.z = n + f;
-            orthoToPespect.c3.z = -n * f;
-            orthoToPespect.c2.w = 1;
-            orthoToPespect.c3.w = 0;
-            
-            float4x4 translate = float4x4.identity;
-            translate.c3 = new float4(r+l, t+b, n+f, -2.0f) * -0.5f;
-            float4x4 scale = float4x4.identity;
-            scale.c0.x = 2f / (r - l);
-            scale.c1.y = 2f / (t - b);
-            scale.c2.z = 2f / (n - f);
-            
-            return math.mul(scale, math.mul(translate, orthoToPespect));
+            float4x4 perspectiveToOrtho = float4x4.identity;
+            perspectiveToOrtho.c0.x = n;
+            perspectiveToOrtho.c1.y = n;
+            perspectiveToOrtho.c2.z = n + f;
+            perspectiveToOrtho.c3.z = -n * f;
+            perspectiveToOrtho.c2.w = 1;
+            perspectiveToOrtho.c3.w = 0;
+
+            return math.mul(GetOrthoMatrix(l, r, b, t, f, n), perspectiveToOrtho);
         }
     }
 }

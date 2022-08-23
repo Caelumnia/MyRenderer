@@ -86,11 +86,11 @@ namespace MyRenderer
 
     public struct Triangle
     {
-        public TriangleVert[] Verts;
+        public NativeArray<TriangleVert> Verts;
 
-        public Triangle(float3[] pos, Varyings[] verts)
+        public Triangle(NativeArray<float3> pos, NativeArray<Varyings> verts)
         {
-            Verts = new TriangleVert[3];
+            Verts = new NativeArray<TriangleVert>(3, Allocator.Temp);
             for (int i = 0; i < 3; ++i)
             {
                 Verts[i] = new TriangleVert()
@@ -102,6 +102,11 @@ namespace MyRenderer
                     TexCoord = verts[i].UV0,
                 };
             }
+        }
+
+        public void Release()
+        {
+            Verts.Dispose();
         }
 
         public void GetScreenBounds(int2 screenSize, out int2 minCoord, out int2 maxCoord)
