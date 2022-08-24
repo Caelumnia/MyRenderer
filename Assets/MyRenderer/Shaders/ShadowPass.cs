@@ -43,27 +43,27 @@ namespace MyRenderer.Shaders
 
                 if (Common.Clipped(v0, v1, v2)) return;
 
-                var pos0 = v0.xyz / v0.w;
-                var pos1 = v1.xyz / v1.w;
-                var pos2 = v2.xyz / v2.w;
+                v0.xyz /= v0.w;
+                v1.xyz /= v1.w;
+                v2.xyz /= v2.w;
 
-                if (Common.Backface(pos0, pos1, pos2)) return;
+                if (Common.Backface(v0.xyz, v1.xyz, v2.xyz)) return;
 
                 var screen = new float2(Width - 1, Height - 1) * 0.5f;
-                pos0.xy = (pos0.xy + new float2(1.0f)) * screen;
-                pos0.z = pos0.z * 0.5f + 0.5f;
-                pos1.xy = (pos1.xy + new float2(1.0f)) * screen;
-                pos1.z = pos1.z * 0.5f + 0.5f;
-                pos2.xy = (pos2.xy + new float2(1.0f)) * screen;
-                pos2.z = pos2.z * 0.5f + 0.5f;
+                v0.xy = (v0.xy + new float2(1.0f)) * screen;
+                v0.z = v0.z * 0.5f + 0.5f;
+                v1.xy = (v1.xy + new float2(1.0f)) * screen;
+                v1.z = v1.z * 0.5f + 0.5f;
+                v2.xy = (v2.xy + new float2(1.0f)) * screen;
+                v2.z = v2.z * 0.5f + 0.5f;
 
                 var minCoord = new int2(Int32.MaxValue);
                 var maxCoord = new int2(Int32.MinValue);
 
-                minCoord.x = Mathf.FloorToInt(math.min(pos0.x, math.min(pos1.x, pos2.x)));
-                minCoord.y = Mathf.FloorToInt(math.min(pos0.y, math.min(pos1.y, pos2.y)));
-                maxCoord.x = Mathf.CeilToInt(math.max(pos0.x, math.max(pos1.x, pos2.x)));
-                maxCoord.y = Mathf.CeilToInt(math.max(pos0.y, math.max(pos1.y, pos2.y)));
+                minCoord.x = Mathf.FloorToInt(math.min(v0.x, math.min(v1.x, v2.x)));
+                minCoord.y = Mathf.FloorToInt(math.min(v0.y, math.min(v1.y, v2.y)));
+                maxCoord.x = Mathf.CeilToInt(math.max(v0.x, math.max(v1.x, v2.x)));
+                maxCoord.y = Mathf.CeilToInt(math.max(v0.y, math.max(v1.y, v2.y)));
                 
                 minCoord = math.max(minCoord, 0);
                 maxCoord = math.min(maxCoord, new int2(Width, Height));
@@ -73,11 +73,11 @@ namespace MyRenderer.Shaders
                     for (int x = minCoord.x; x < maxCoord.x; ++x)
                     {
                         float3 pixelPos = new float3(x + 0.5f, y + 0.5f, 0.0f);
-                        var baryCoord = Common.ComputeBarycentric2D(pixelPos.x, pixelPos.y, pos0, pos1, pos2);
-                        if (baryCoord.x < 0 || baryCoord.y < 0 || baryCoord.z < 0) continue;
+                        var baryCoord = Common.ComputeBarycentric2D(pixelPos.x, pixelPos.y, v0.xyz, v1.xyz, v2.xyz);
+                        if (baryCoord.x < -0.0005f || baryCoord.y < -0.0005f || baryCoord.z < -0.0005f) continue;
 
                         var ws = new float3(v0.w, v1.w, v2.w);
-                        var zs = new float3(pos0.z, pos1.z, pos2.z);
+                        var zs = new float3(v0.z, v1.z, v2.z);
                         var co = baryCoord / ws;
                         float z = 1.0f / math.csum(co);
                         pixelPos.z = z * math.csum(co * zs);

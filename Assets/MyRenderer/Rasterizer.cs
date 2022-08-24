@@ -35,7 +35,7 @@ namespace MyRenderer
             {
                 filterMode = FilterMode.Point
             };
-            
+
             _uniforms = new UniformBuffer();
         }
 
@@ -78,6 +78,11 @@ namespace MyRenderer
             _uniforms.LightColor = new float4(lightColor.r, lightColor.g, lightColor.b, lightColor.a);
         }
 
+        public void SetupUniform(Material material)
+        {
+            _uniforms.Albedo = new float4(material.color.r, material.color.g, material.color.b, material.color.a);
+        }
+
         public void SetupCamera(Camera camera)
         {
             _uniforms.MatView = GetViewMatrix(_uniforms.WSCameraPos, _uniforms.WSCameraLookAt, _uniforms.WSCameraUp);
@@ -101,14 +106,14 @@ namespace MyRenderer
             _uniforms.MatView = GetViewMatrix(0.0f, -_uniforms.WSLightDir, new float3(0.0f, 1.0f, 0.0f));
             float halfHeight = 5.0f;
             float halfWidth = (float) _width / _height * halfHeight;
-            _uniforms.MatProj = GetOrthoMatrix(-halfWidth, halfWidth, -halfHeight, halfHeight,-100, 100);
+            _uniforms.MatProj = GetOrthoMatrix(-halfWidth, halfWidth, -halfHeight, halfHeight, -100, 100);
             _uniforms.MatLightViewProj = math.mul(_uniforms.MatProj, _uniforms.MatView);
         }
 
         public void ShadowPass(RenderProxy proxy)
         {
             Profiler.BeginSample($"Rasterizer.ShadowPass({proxy.mesh.name})");
-            
+
             var transform = proxy.transform;
             var position = transform.position;
             position.z *= -1;
@@ -133,7 +138,7 @@ namespace MyRenderer
             };
             var PSHandle = PS.Schedule(proxy.Attributes.Indices.Length, 1, VSHandle);
             PSHandle.Complete();
-            
+
             CSPosArray.Dispose();
 
             Profiler.EndSample();
@@ -150,6 +155,7 @@ namespace MyRenderer
             var position = transform.position;
             position.z *= -1;
             _uniforms.MatModel = proxy.GetModelMatrix();
+            SetupUniform(proxy.material);
 
             var VaryingsArray = new NativeArray<Varyings>(proxy.mesh.vertexCount, Allocator.TempJob);
             var VS = new Shaders.BasePass.VertexShader()
@@ -175,7 +181,7 @@ namespace MyRenderer
                 DepthBuffer = _depthBuffer.Buffer,
                 Renderred = Renderred,
             };
-            var PSHandle = PS.Schedule(proxy.Attributes.Indices.Length, 2, VSHandle);
+            var PSHandle = PS.Schedule(proxy.Attributes.Indices.Length, 1, VSHandle);
             PSHandle.Complete();
 
             foreach (bool b in Renderred)
@@ -193,18 +199,6 @@ namespace MyRenderer
         {
             Profiler.BeginSample("Rasterizer.Flush()");
 
-            // var shadow = _shadowMap.Raw;
-            // var color = new Color[shadow.Length];
-            // {
-            //     for (int y = 0; y < _height; ++y)
-            //     {
-            //         for (int x = 0; x < _width; ++x)
-            //         {
-            //             int index = x + y * _width;
-            //             color[index] = new Color(shadow[index], 0, 0, 1);
-            //         }
-            //     }
-            // }
             ScreenRT.SetPixels(_colorBuffer.Raw);
             ScreenRT.Apply(false);
             StatsUpdate(_verticeCount, _triangleCount, _triangleAll);

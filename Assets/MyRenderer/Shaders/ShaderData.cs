@@ -10,7 +10,7 @@ namespace MyRenderer
         public float3 WSCameraPos;
         public float3 WSCameraLookAt;
         public float3 WSCameraUp;
-        
+
         public float3 WSLightPos;
         public float3 WSLightDir;
         public float4 LightColor;
@@ -22,6 +22,8 @@ namespace MyRenderer
 
         public float4x4 MatMVP => math.mul(MatProj, math.mul(MatView, MatModel));
         public float4x4 MatNormal => math.transpose(math.inverse(MatModel));
+
+        public float4 Albedo;
     }
 
     public struct Attributes // Data of VS input

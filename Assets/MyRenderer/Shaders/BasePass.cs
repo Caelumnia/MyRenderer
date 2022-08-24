@@ -1,4 +1,6 @@
-﻿using Unity.Burst;
+﻿using System;
+using System.Runtime.CompilerServices;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
@@ -48,7 +50,27 @@ namespace MyRenderer.Shaders
             [NativeDisableParallelForRestriction] public NativeArray<Color> ColorBuffer;
             [NativeDisableParallelForRestriction] public NativeArray<float> DepthBuffer;
 
-            public NativeArray<bool> Renderred;
+            [WriteOnly] public NativeArray<bool> Renderred;
+
+            private static readonly float2[] PoissonFilter = new[]
+            {
+                new float2(-0.94201624f, -0.39906216f),
+                new float2(0.94558609f, -0.76890725f),
+                new float2(-0.094184101f, -0.92938870f),
+                new float2(0.34495938f, 0.29387760f),
+                new float2(-0.91588581f, 0.45771432f),
+                new float2(-0.81544232f, -0.87912464f),
+                new float2(-0.38277543f, 0.27676845f),
+                new float2(0.97484398f, 0.75648379f),
+                new float2(0.44323325f, -0.97511554f),
+                new float2(0.53742981f, -0.47373420f),
+                new float2(-0.26496911f, -0.41893023f),
+                new float2(0.79197514f, 0.19090188f),
+                new float2(-0.24188840f, 0.99706507f),
+                new float2(-0.81409955f, 0.91437590f),
+                new float2(0.19984126f, 0.78641367f),
+                new float2(0.14383161f, -0.14100790f)
+            };
 
             public void Execute(int index)
             {
@@ -102,21 +124,23 @@ namespace MyRenderer.Shaders
 
                         int bufIndex = Common.GetIndex(x, y, Width);
                         if (pixelPos.z < DepthBuffer[bufIndex]) continue;
-
-                        t.Interpolate(pixelPos, co * z, out var inpVert);
                         DepthBuffer[bufIndex] = pixelPos.z;
 
+                        TriangleVert inpVert;
+                        inpVert.SSPos = new float4(pixelPos, 1.0f);
+                        inpVert.WSPos =
+                            z * (co.x * t.Verts[0].WSPos + co.y * t.Verts[1].WSPos + co.z * t.Verts[2].WSPos);
+                        inpVert.WSNormal = z * (co.x * t.Verts[0].WSNormal + co.y * t.Verts[1].WSNormal +
+                                                co.z * t.Verts[2].WSNormal);
+                        inpVert.Color =
+                            z * (co.x * t.Verts[0].Color + co.y * t.Verts[1].Color + co.z * t.Verts[2].Color);
+                        inpVert.TexCoord = z * (co.x * t.Verts[0].TexCoord + co.y * t.Verts[1].TexCoord +
+                                                co.z * t.Verts[2].TexCoord);
+
+                        var shadow = SampleShadowDepth(inpVert.WSPos, screen);
                         var color = BlinnPhong(ref inpVert);
-                        var lightPos = math.mul(Uniforms.MatLightViewProj, new float4(inpVert.WSPos, 1.0f));
-                        lightPos.xy = (lightPos.xy + new float2(1.0f)) * screen;
-                        lightPos.z = lightPos.z * 0.5f + 0.5f;
 
-                        int smIndex = Common.GetIndex(Mathf.RoundToInt(lightPos.x), Mathf.RoundToInt(lightPos.y),
-                            Width);
-                        var lightDepth = smIndex >= ShadowMap.Length || smIndex < 0 ? 0.0f : ShadowMap[smIndex];
-                        if (lightPos.z < lightDepth) color *= 0.5f;
-
-                        ColorBuffer[bufIndex] = color;
+                        ColorBuffer[bufIndex] = color * shadow;
                     }
                 }
 
@@ -129,17 +153,88 @@ namespace MyRenderer.Shaders
 
             private Color BlinnPhong(ref TriangleVert vert)
             {
+                float3 normal = math.normalize(vert.WSNormal);
                 float3 viewDir = math.normalize(Uniforms.WSCameraPos - vert.WSPos);
                 float3 halfVec = math.normalize(Uniforms.WSLightDir + viewDir);
-                float dotNL = math.dot(vert.WSNormal, Uniforms.WSLightDir);
-                float dotNH = math.dot(vert.WSNormal, halfVec);
+                float dotNL = math.dot(normal, Uniforms.WSLightDir);
+                float dotNH = math.dot(normal, halfVec);
 
-                float4 ks = new float4(0.7937f, 0.7937f, 0.7937f, 1.0f);
-                float4 diffuse = vert.Color * Uniforms.LightColor * math.max(0, dotNL);
-                float4 specular = ks * Uniforms.LightColor * math.pow(math.max(0, dotNH), 300f);
+                float4 ambient = 0.5f * Uniforms.Albedo;
+                float4 diffuse = 0.8f * Uniforms.Albedo * math.max(0, dotNL);
+                float4 specular = 0.7f * Uniforms.Albedo * math.pow(math.max(0, dotNH), 256f);
 
-                float4 color = diffuse + specular;
+                float4 color = (ambient + diffuse + specular) * Uniforms.LightColor;
                 return new Color(color.x, color.y, color.z, color.w);
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            private float3 GetLightPos(float3 WSPos, float2 viewport)
+            {
+                var pos = math.mul(Uniforms.MatLightViewProj, new float4(WSPos, 1.0f));
+                pos.xy = (pos.xy + new float2(1.0f)) * viewport;
+                pos.z = pos.z * 0.5f + 0.5f;
+                return pos.xyz;
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            private float SampleShadowMap(float2 pos, float depth)
+            {
+                var p0 = math.floor(pos);
+                var x0 = math.clamp((int) p0.x, 0, Width);
+                var y0 = math.clamp((int) p0.y, 0, Height);
+                var bias = 0.0003f;
+                return depth > ShadowMap[Common.GetIndex(x0, y0, Width)] - bias ? 1.0f : 0.0f;
+            }
+
+            private int GetRandomSampleIndex(float3 WSPos, int index)
+            {
+                var seed = new float4(WSPos, index);
+                var dot = math.dot(seed, new float4(12.9898f, 78.233f, 45.164f, 94.673f));
+                var rand = math.frac(math.sin(dot) * 43758.5453f);
+                return Mathf.RoundToInt(rand * 16.0f) % 16;
+            }
+
+            private float SampleShadowDepth(float3 WSPos, float2 viewport)
+            {
+                var lightPos = GetLightPos(WSPos, viewport);
+                var pos = WSPos * 100f;
+                var size = 0.5f;
+                var samples0 = lightPos.xy + PoissonFilter[GetRandomSampleIndex(pos, 0)] * size;
+                var samples1 = lightPos.xy + PoissonFilter[GetRandomSampleIndex(pos, 1)] * size;
+                var samples2 = lightPos.xy + PoissonFilter[GetRandomSampleIndex(pos, 2)] * size;
+                var samples3 = lightPos.xy + PoissonFilter[GetRandomSampleIndex(pos, 3)] * size;
+                var samples4 = lightPos.xy + PoissonFilter[GetRandomSampleIndex(pos, 4)] * size;
+                var samples5 = lightPos.xy + PoissonFilter[GetRandomSampleIndex(pos, 5)] * size;
+                var samples6 = lightPos.xy + PoissonFilter[GetRandomSampleIndex(pos, 6)] * size;
+                var samples7 = lightPos.xy + PoissonFilter[GetRandomSampleIndex(pos, 7)] * size;
+                var samples8 = lightPos.xy + PoissonFilter[GetRandomSampleIndex(pos, 8)] * size;
+                var samples9 = lightPos.xy + PoissonFilter[GetRandomSampleIndex(pos, 9)] * size;
+                var samples10 = lightPos.xy + PoissonFilter[GetRandomSampleIndex(pos, 10)] * size;
+                var samples11 = lightPos.xy + PoissonFilter[GetRandomSampleIndex(pos, 11)] * size;
+                var samples12 = lightPos.xy + PoissonFilter[GetRandomSampleIndex(pos, 12)] * size;
+                var samples13 = lightPos.xy + PoissonFilter[GetRandomSampleIndex(pos, 13)] * size;
+                var samples14 = lightPos.xy + PoissonFilter[GetRandomSampleIndex(pos, 14)] * size;
+                var samples15 = lightPos.xy + PoissonFilter[GetRandomSampleIndex(pos, 15)] * size;
+
+                float depth = 0.0f;
+                depth += SampleShadowMap(samples0, lightPos.z);
+                depth += SampleShadowMap(samples1, lightPos.z);
+                depth += SampleShadowMap(samples2, lightPos.z);
+                depth += SampleShadowMap(samples3, lightPos.z);
+                depth += SampleShadowMap(samples4, lightPos.z);
+                depth += SampleShadowMap(samples5, lightPos.z);
+                depth += SampleShadowMap(samples6, lightPos.z);
+                depth += SampleShadowMap(samples7, lightPos.z);
+                depth += SampleShadowMap(samples8, lightPos.z);
+                depth += SampleShadowMap(samples9, lightPos.z);
+                depth += SampleShadowMap(samples10, lightPos.z);
+                depth += SampleShadowMap(samples11, lightPos.z);
+                depth += SampleShadowMap(samples12, lightPos.z);
+                depth += SampleShadowMap(samples13, lightPos.z);
+                depth += SampleShadowMap(samples14, lightPos.z);
+                depth += SampleShadowMap(samples15, lightPos.z);
+
+                return depth / 16.0f;
             }
         }
     }
