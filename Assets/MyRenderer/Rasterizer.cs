@@ -12,9 +12,11 @@ namespace MyRenderer
     public class Rasterizer
     {
         public Texture2D ScreenRT;
+        public Texture2D ShadowRT;
         public OnStatsUpdate StatsUpdate;
 
         private int _width, _height;
+        private RenderConfig _config;
         private UniformBuffer _uniforms;
         private NativeBuffer<Color> _colorBuffer;
         private NativeBuffer<float> _depthBuffer;
@@ -22,19 +24,27 @@ namespace MyRenderer
 
         private int _triangleCount, _verticeCount, _triangleAll;
 
-        public Rasterizer(int width, int height)
+        public Rasterizer(int width, int height, RenderConfig config)
         {
             _width = width;
             _height = height;
+            _config = config;
 
             int bufferSize = width * height;
             _colorBuffer = new NativeBuffer<Color>(bufferSize);
             _depthBuffer = new NativeBuffer<float>(bufferSize);
-            _shadowMap = new NativeBuffer<float>(bufferSize);
+            _shadowMap = new NativeBuffer<float>(_config.ShadowMapSize * _config.ShadowMapSize);
             ScreenRT = new Texture2D(width, height)
             {
                 filterMode = FilterMode.Point
             };
+            if (_config.target == RenderTarget.ShadowMap)
+            {
+                ShadowRT = new Texture2D(_config.ShadowMapSize, config.ShadowMapSize)
+                {
+                    filterMode = FilterMode.Point
+                };
+            }
 
             _uniforms = new UniformBuffer();
         }
@@ -45,6 +55,7 @@ namespace MyRenderer
             _depthBuffer.Release();
             _shadowMap.Release();
             ScreenRT = null;
+            ShadowRT = null;
         }
 
         public void Clear()
@@ -104,9 +115,8 @@ namespace MyRenderer
         public void SetupLight(Light light)
         {
             _uniforms.MatView = GetViewMatrix(0.0f, -_uniforms.WSLightDir, new float3(0.0f, 1.0f, 0.0f));
-            float halfHeight = 5.0f;
-            float halfWidth = (float) _width / _height * halfHeight;
-            _uniforms.MatProj = GetOrthoMatrix(-halfWidth, halfWidth, -halfHeight, halfHeight, -100, 100);
+            float halfWidth = 10.0f;
+            _uniforms.MatProj = GetOrthoMatrix(-halfWidth, halfWidth, -halfWidth, halfWidth, -100, 100);
             _uniforms.MatLightViewProj = math.mul(_uniforms.MatProj, _uniforms.MatView);
         }
 
@@ -133,8 +143,7 @@ namespace MyRenderer
                 Indices = proxy.Attributes.Indices,
                 CSPosArray = CSPosArray,
                 ShadowMap = _shadowMap.Buffer,
-                Width = _width,
-                Height = _height,
+                Width = _config.ShadowMapSize,
             };
             var PSHandle = PS.Schedule(proxy.Attributes.Indices.Length, 1, VSHandle);
             PSHandle.Complete();
@@ -177,6 +186,7 @@ namespace MyRenderer
                 ShadowMap = _shadowMap.Buffer,
                 Width = _width,
                 Height = _height,
+                ShadowMapSize = _config.ShadowMapSize,
                 ColorBuffer = _colorBuffer.Buffer,
                 DepthBuffer = _depthBuffer.Buffer,
                 Renderred = Renderred,
@@ -199,8 +209,28 @@ namespace MyRenderer
         {
             Profiler.BeginSample("Rasterizer.Flush()");
 
-            ScreenRT.SetPixels(_colorBuffer.Raw);
-            ScreenRT.Apply(false);
+            if (_config.target == RenderTarget.ShadowMap)
+            {
+                var shadow = _shadowMap.Raw;
+                var color = new Color[shadow.Length];
+                for (int y = 0; y < _config.ShadowMapSize; ++y)
+                {
+                    for (int x = 0; x < _config.ShadowMapSize; ++x)
+                    {
+                        int index = x + y * _config.ShadowMapSize;
+                        color[index] = new Color(shadow[index], shadow[index], shadow[index], 1.0f);
+                    }
+                }
+
+                ShadowRT.SetPixels(color);
+                ShadowRT.Apply(false);
+            }
+            else
+            {
+                ScreenRT.SetPixels(_colorBuffer.Raw);
+                ScreenRT.Apply(false);
+            }
+
             StatsUpdate(_verticeCount, _triangleCount, _triangleAll);
 
             Profiler.EndSample();

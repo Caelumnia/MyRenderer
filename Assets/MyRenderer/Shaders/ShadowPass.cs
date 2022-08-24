@@ -30,7 +30,7 @@ namespace MyRenderer.Shaders
         {
             [ReadOnly] public NativeArray<int3> Indices;
             [ReadOnly] public NativeArray<float4> CSPosArray;
-            [ReadOnly] public int Width, Height;
+            [ReadOnly] public int Width;
             
             [NativeDisableParallelForRestriction] public NativeArray<float> ShadowMap;
             
@@ -49,7 +49,7 @@ namespace MyRenderer.Shaders
 
                 if (Common.Backface(v0.xyz, v1.xyz, v2.xyz)) return;
 
-                var screen = new float2(Width - 1, Height - 1) * 0.5f;
+                var screen = new float2(Width * 0.5f);
                 v0.xy = (v0.xy + new float2(1.0f)) * screen;
                 v0.z = v0.z * 0.5f + 0.5f;
                 v1.xy = (v1.xy + new float2(1.0f)) * screen;
@@ -66,7 +66,7 @@ namespace MyRenderer.Shaders
                 maxCoord.y = Mathf.CeilToInt(math.max(v0.y, math.max(v1.y, v2.y)));
                 
                 minCoord = math.max(minCoord, 0);
-                maxCoord = math.min(maxCoord, new int2(Width, Height));
+                maxCoord = math.min(maxCoord, new int2(Width, Width));
                 
                 for (int y = minCoord.y; y < maxCoord.y; ++y)
                 {

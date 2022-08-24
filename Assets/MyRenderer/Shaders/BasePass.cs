@@ -33,6 +33,7 @@ namespace MyRenderer.Shaders
                 OSNormal.z *= -1;
                 varyings.WSNormal = math.mul(MatNormal, OSNormal).xyz;
                 varyings.UV0 = Attributes.UV[index];
+                varyings.Color = 1.0f;
 
                 VaryingsArray[index] = varyings;
             }
@@ -44,7 +45,7 @@ namespace MyRenderer.Shaders
             [ReadOnly] public NativeArray<int3> Indices;
             [ReadOnly] public UniformBuffer Uniforms;
             [ReadOnly] public NativeArray<Varyings> VaryingsArray;
-            [ReadOnly] public int Width, Height;
+            [ReadOnly] public int Width, Height, ShadowMapSize;
             [ReadOnly] public NativeArray<float> ShadowMap;
 
             [NativeDisableParallelForRestriction] public NativeArray<Color> ColorBuffer;
@@ -75,12 +76,6 @@ namespace MyRenderer.Shaders
             public void Execute(int index)
             {
                 var indice = Indices[index];
-                var verts = new NativeArray<Varyings>(3, Allocator.Temp);
-                for (int i = 0; i < 3; ++i)
-                {
-                    verts[i] = VaryingsArray[indice[i]];
-                }
-
                 var Verts0 = VaryingsArray[indice[0]];
                 var Verts1 = VaryingsArray[indice[1]];
                 var Verts2 = VaryingsArray[indice[2]];
@@ -91,33 +86,41 @@ namespace MyRenderer.Shaders
 
                 if (Common.Clipped(v0, v1, v2)) return;
 
-                var pos = new NativeArray<float3>(3, Allocator.Temp);
-                for (int i = 0; i < 3; ++i)
-                {
-                    pos[i] = verts[i].CSPos.xyz / verts[i].CSPos.w;
-                }
+                v0.xyz /= v0.w;
+                v1.xyz /= v1.w;
+                v2.xyz /= v2.w;
 
-                if (Common.Backface(pos[0], pos[1], pos[2])) return;
+                if (Common.Backface(v0.xyz, v1.xyz, v2.xyz)) return;
 
                 var screen = new float2(Width - 1, Height - 1) * 0.5f;
-                for (int i = 0; i < 3; ++i)
-                {
-                    pos[i] = new float3((pos[i].xy + new float2(1.0f, 1.0f)) * screen, pos[i].z * 0.5f + 0.5f);
-                }
+                v0.xy = (v0.xy + new float2(1.0f)) * screen;
+                v0.z = v0.z * 0.5f + 0.5f;
+                v1.xy = (v1.xy + new float2(1.0f)) * screen;
+                v1.z = v1.z * 0.5f + 0.5f;
+                v2.xy = (v2.xy + new float2(1.0f)) * screen;
+                v2.z = v2.z * 0.5f + 0.5f;
 
-                var t = new Triangle(pos, verts);
-                t.GetScreenBounds(new int2(Width, Height), out var minCoord, out var maxCoord);
+                var minCoord = new int2(Int32.MaxValue);
+                var maxCoord = new int2(Int32.MinValue);
+
+                minCoord.x = Mathf.FloorToInt(math.min(v0.x, math.min(v1.x, v2.x)));
+                minCoord.y = Mathf.FloorToInt(math.min(v0.y, math.min(v1.y, v2.y)));
+                maxCoord.x = Mathf.CeilToInt(math.max(v0.x, math.max(v1.x, v2.x)));
+                maxCoord.y = Mathf.CeilToInt(math.max(v0.y, math.max(v1.y, v2.y)));
+
+                minCoord = math.max(minCoord, 0);
+                maxCoord = math.min(maxCoord, new int2(Width, Height));
 
                 for (int y = minCoord.y; y < maxCoord.y; ++y)
                 {
                     for (int x = minCoord.x; x < maxCoord.x; ++x)
                     {
                         float3 pixelPos = new float3(x + 0.5f, y + 0.5f, 0.0f);
-                        var baryCoord = Common.ComputeBarycentric2D(pixelPos.x, pixelPos.y, pos[0], pos[1], pos[2]);
-                        if (baryCoord.x < 0 || baryCoord.y < 0 || baryCoord.z < 0) continue;
+                        var baryCoord = Common.ComputeBarycentric2D(pixelPos.x, pixelPos.y, v0.xyz, v1.xyz, v2.xyz);
+                        if (baryCoord.x < -0.0005f || baryCoord.y < -0.0005f || baryCoord.z < -0.0005f) continue;
 
-                        var ws = new float3(t.Verts[0].SSPos.w, t.Verts[1].SSPos.w, t.Verts[2].SSPos.w);
-                        var zs = new float3(t.Verts[0].SSPos.z, t.Verts[1].SSPos.z, t.Verts[2].SSPos.z);
+                        var ws = new float3(v0.w, v1.w, v2.w);
+                        var zs = new float3(v0.z, v1.z, v2.z);
                         var co = baryCoord / ws;
                         float z = 1.0f / math.csum(co);
                         pixelPos.z = z * math.csum(co * zs);
@@ -126,18 +129,15 @@ namespace MyRenderer.Shaders
                         if (pixelPos.z < DepthBuffer[bufIndex]) continue;
                         DepthBuffer[bufIndex] = pixelPos.z;
 
+                        var inp = co * z;
                         TriangleVert inpVert;
                         inpVert.SSPos = new float4(pixelPos, 1.0f);
-                        inpVert.WSPos =
-                            z * (co.x * t.Verts[0].WSPos + co.y * t.Verts[1].WSPos + co.z * t.Verts[2].WSPos);
-                        inpVert.WSNormal = z * (co.x * t.Verts[0].WSNormal + co.y * t.Verts[1].WSNormal +
-                                                co.z * t.Verts[2].WSNormal);
-                        inpVert.Color =
-                            z * (co.x * t.Verts[0].Color + co.y * t.Verts[1].Color + co.z * t.Verts[2].Color);
-                        inpVert.TexCoord = z * (co.x * t.Verts[0].TexCoord + co.y * t.Verts[1].TexCoord +
-                                                co.z * t.Verts[2].TexCoord);
+                        inpVert.WSPos = inp.x * Verts0.WSPos + inp.y * Verts1.WSPos + inp.z * Verts2.WSPos;
+                        inpVert.WSNormal = inp.x * Verts0.WSNormal + inp.y * Verts1.WSNormal + inp.z * Verts2.WSNormal;
+                        inpVert.Color = inp.x * Verts0.Color + inp.y * Verts1.Color + inp.z * Verts2.Color;
+                        inpVert.TexCoord = inp.x * Verts0.UV0 + inp.y * Verts1.UV0 + inp.z * Verts2.UV0;
 
-                        var shadow = SampleShadowDepth(inpVert.WSPos, screen);
+                        var shadow = SampleShadowDepth(inpVert.WSPos);
                         var color = BlinnPhong(ref inpVert);
 
                         ColorBuffer[bufIndex] = color * shadow;
@@ -145,10 +145,6 @@ namespace MyRenderer.Shaders
                 }
 
                 Renderred[index] = true;
-
-                t.Release();
-                pos.Dispose();
-                verts.Dispose();
             }
 
             private Color BlinnPhong(ref TriangleVert vert)
@@ -171,6 +167,7 @@ namespace MyRenderer.Shaders
             private float3 GetLightPos(float3 WSPos, float2 viewport)
             {
                 var pos = math.mul(Uniforms.MatLightViewProj, new float4(WSPos, 1.0f));
+                pos.xyz /= pos.w;
                 pos.xy = (pos.xy + new float2(1.0f)) * viewport;
                 pos.z = pos.z * 0.5f + 0.5f;
                 return pos.xyz;
@@ -180,10 +177,10 @@ namespace MyRenderer.Shaders
             private float SampleShadowMap(float2 pos, float depth)
             {
                 var p0 = math.floor(pos);
-                var x0 = math.clamp((int) p0.x, 0, Width);
-                var y0 = math.clamp((int) p0.y, 0, Height);
+                var x0 = math.clamp((int) p0.x, 0, ShadowMapSize);
+                var y0 = math.clamp((int) p0.y, 0, ShadowMapSize);
                 var bias = 0.0003f;
-                return depth > ShadowMap[Common.GetIndex(x0, y0, Width)] - bias ? 1.0f : 0.0f;
+                return depth > ShadowMap[Common.GetIndex(x0, y0, ShadowMapSize)] - bias ? 1.0f : 0.0f;
             }
 
             private int GetRandomSampleIndex(float3 WSPos, int index)
@@ -194,11 +191,11 @@ namespace MyRenderer.Shaders
                 return Mathf.RoundToInt(rand * 16.0f) % 16;
             }
 
-            private float SampleShadowDepth(float3 WSPos, float2 viewport)
+            private float SampleShadowDepth(float3 WSPos)
             {
-                var lightPos = GetLightPos(WSPos, viewport);
+                var lightPos = GetLightPos(WSPos, new float2(ShadowMapSize * 0.5f));
                 var pos = WSPos * 100f;
-                var size = 0.5f;
+                var size = 2f;
                 var samples0 = lightPos.xy + PoissonFilter[GetRandomSampleIndex(pos, 0)] * size;
                 var samples1 = lightPos.xy + PoissonFilter[GetRandomSampleIndex(pos, 1)] * size;
                 var samples2 = lightPos.xy + PoissonFilter[GetRandomSampleIndex(pos, 2)] * size;

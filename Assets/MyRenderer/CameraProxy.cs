@@ -11,9 +11,9 @@ namespace MyRenderer
     public class CameraProxy : MonoBehaviour
     {
         public RawImage rawImage;
+        public RenderConfig config;
 
-        [SerializeField]
-        private Light mainLight;
+        [SerializeField] private Light mainLight;
         private Camera _camera;
         private Stats _stats;
         private Rasterizer _rasterizer;
@@ -32,6 +32,7 @@ namespace MyRenderer
             {
                 _renderProxies.AddRange(obj.GetComponentsInChildren<RenderProxy>());
             }
+
             Debug.Log($"Collect {_renderProxies.Count} render objects.");
 
             _width = Screen.width;
@@ -40,8 +41,15 @@ namespace MyRenderer
             rect.sizeDelta = new Vector2(_width, _height);
             Debug.Log($"Screen size {_width}x{_height}");
 
-            _rasterizer = new Rasterizer(_width, _height);
-            rawImage.texture = _rasterizer.ScreenRT;
+            _rasterizer = new Rasterizer(_width, _height, config);
+            if (config.target == RenderTarget.ShadowMap)
+            {
+                rawImage.texture = _rasterizer.ShadowRT;
+            }
+            else
+            {
+                rawImage.texture = _rasterizer.ScreenRT;
+            }
 
             _stats = GetComponent<Stats>();
             if (_stats != null)
@@ -66,7 +74,7 @@ namespace MyRenderer
         private void Render()
         {
             Profiler.BeginSample("CameraProxy.Render()");
-            
+
             _rasterizer.Clear();
             _rasterizer.SetupUniform(_camera, mainLight);
 
@@ -75,15 +83,15 @@ namespace MyRenderer
             {
                 _rasterizer.ShadowPass(obj);
             }
-            
+
             _rasterizer.SetupCamera(_camera);
             foreach (var obj in _renderProxies)
             {
                 _rasterizer.BasePass(obj);
             }
-            
+
             _rasterizer.Flush();
-            
+
             Profiler.EndSample();
         }
     }

@@ -612,6 +612,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   rawImage: {fileID: 146298550}
+  config: {fileID: 11400000, guid: 4b80f3a968333f5468f3d013c9570bb0, type: 2}
   mainLight: {fileID: 705507994}
 --- !u!114 &963194230
 MonoBehaviour:
