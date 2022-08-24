@@ -9,107 +9,54 @@ using UnityEngine.Profiling;
 
 namespace MyRenderer
 {
-    [Flags]
-    public enum BufferMask
+    public class Rasterizer
     {
-        None = 0,
-        Color = 1,
-        Depth = 2,
-    }
-
-    public struct FrameBuffer
-    {
-        public NativeBuffer<Color> ColorBuffer;
-        public NativeBuffer<float> DepthBuffer;
-
         public Texture2D ScreenRT;
+        public OnStatsUpdate StatsUpdate;
 
-        public FrameBuffer(int width, int height)
+        private int _width, _height;
+        private UniformBuffer _uniforms;
+        private NativeBuffer<Color> _colorBuffer;
+        private NativeBuffer<float> _depthBuffer;
+        private NativeBuffer<float> _shadowMap;
+
+        private int _triangleCount, _verticeCount, _triangleAll;
+
+        public Rasterizer(int width, int height)
         {
+            _width = width;
+            _height = height;
+
             int bufferSize = width * height;
-            ColorBuffer = new NativeBuffer<Color>(bufferSize);
-            DepthBuffer = new NativeBuffer<float>(bufferSize);
+            _colorBuffer = new NativeBuffer<Color>(bufferSize);
+            _depthBuffer = new NativeBuffer<float>(bufferSize);
+            _shadowMap = new NativeBuffer<float>(bufferSize);
             ScreenRT = new Texture2D(width, height)
             {
                 filterMode = FilterMode.Point
             };
-        }
-
-        public void Clear(BufferMask mask)
-        {
-            if (mask.HasFlag(BufferMask.Color))
-            {
-                ColorBuffer.Fill(Color.black);
-            }
-
-            if (mask.HasFlag(BufferMask.Depth))
-            {
-                DepthBuffer.Fill(0.0f);
-            }
-        }
-
-        public void Flush(BufferMask mask = BufferMask.Color)
-        {
-            ScreenRT.SetPixels(ColorBuffer.Raw);
-            ScreenRT.Apply();
-        }
-
-        public void Release()
-        {
-            ColorBuffer.Release();
-            DepthBuffer.Release();
-            ScreenRT = null;
-        }
-    }
-
-    public class Rasterizer
-    {
-        public FrameBuffer FrameBuffer;
-        public NativeBuffer<float> ShadowMap;
-        public OnStatsUpdate StatsUpdate;
-
-        private int _width, _height, _smSize;
-        private UniformBuffer _uniforms;
-
-        private int _triangleCount, _verticeCount, _triangleAll;
-
-        public Rasterizer(int width, int height, int smSize)
-        {
-            _width = width;
-            _height = height;
-            _smSize = smSize;
-
-            FrameBuffer = new FrameBuffer(_width, _height);
-            ShadowMap = new NativeBuffer<float>(_smSize * _smSize);
+            
             _uniforms = new UniformBuffer();
         }
 
         public void Release()
         {
-            FrameBuffer.Release();
+            _colorBuffer.Release();
+            _depthBuffer.Release();
+            _shadowMap.Release();
+            ScreenRT = null;
         }
 
         public void Clear()
         {
-            Profiler.BeginSample("MyRenderer::Rasterizer::Clear");
+            Profiler.BeginSample("Rasterizer.Clear()");
 
-            FrameBuffer.Clear(BufferMask.Color | BufferMask.Depth);
-            ShadowMap.Fill(0.0f);
+            _colorBuffer.Fill(Color.black);
+            _depthBuffer.Clear();
+            _shadowMap.Clear();
             _triangleCount = _triangleAll = _verticeCount = 0;
 
             Profiler.EndSample();
-        }
-
-        public void SetupView(Transform transform)
-        {
-            float3 eye = transform.position;
-            float3 lookAt = transform.forward.normalized;
-            float3 up = transform.up.normalized;
-            eye.z *= -1;
-            lookAt.z *= -1;
-            up.z *= -1;
-
-            _uniforms.MatView = GetViewMatrix(eye, lookAt, up);
         }
 
         public void SetupUniform(Camera camera, Light mainLight)
@@ -141,24 +88,31 @@ namespace MyRenderer
             {
                 float halfHeight = camera.orthographicSize;
                 float halfWidth = aspect * halfHeight;
-                _uniforms.MatProjection = GetOrthoMatrix(-halfWidth, halfWidth, -halfHeight, halfHeight, far, near);
+                _uniforms.MatProj = GetOrthoMatrix(-halfWidth, halfWidth, -halfHeight, halfHeight, far, near);
             }
             else
             {
-                _uniforms.MatProjection = GetPerspectiveMatrix(camera.fieldOfView, aspect, near, far);
+                _uniforms.MatProj = GetPerspectiveMatrix(camera.fieldOfView, aspect, near, far);
             }
         }
 
         public void SetupLight(Light light)
         {
             _uniforms.MatView = GetViewMatrix(0.0f, -_uniforms.WSLightDir, new float3(0.0f, 1.0f, 0.0f));
-            float halfWidth = _smSize / 2.0f;
-            _uniforms.MatProjection = GetOrthoMatrix(-halfWidth, halfWidth, -halfWidth, halfWidth,float.NegativeInfinity, float.PositiveInfinity);
+            float halfHeight = 5.0f;
+            float halfWidth = (float) _width / _height * halfHeight;
+            _uniforms.MatProj = GetOrthoMatrix(-halfWidth, halfWidth, -halfHeight, halfHeight,-100, 100);
+            _uniforms.MatLightViewProj = math.mul(_uniforms.MatProj, _uniforms.MatView);
         }
 
         public void ShadowPass(RenderProxy proxy)
         {
-            Profiler.BeginSample("MyRenderer::Rasterizer::ShadowPass");
+            Profiler.BeginSample($"Rasterizer.ShadowPass({proxy.mesh.name})");
+            
+            var transform = proxy.transform;
+            var position = transform.position;
+            position.z *= -1;
+            _uniforms.MatModel = proxy.GetModelMatrix();
 
             var CSPosArray = new NativeArray<float4>(proxy.mesh.vertexCount, Allocator.TempJob);
             var VS = new Shaders.ShadowPass.VertexShader()
@@ -173,7 +127,7 @@ namespace MyRenderer
             {
                 Indices = proxy.Attributes.Indices,
                 CSPosArray = CSPosArray,
-                ShadowMap = ShadowMap.Buffer,
+                ShadowMap = _shadowMap.Buffer,
                 Width = _width,
                 Height = _height,
             };
@@ -187,7 +141,7 @@ namespace MyRenderer
 
         public void BasePass(RenderProxy proxy)
         {
-            Profiler.BeginSample("MyRenderer::Rasterizer::BasePass");
+            Profiler.BeginSample($"Rasterizer.BasePass({proxy.mesh.name})");
 
             _verticeCount += proxy.mesh.vertexCount;
             _triangleAll += proxy.Attributes.Indices.Length;
@@ -214,10 +168,11 @@ namespace MyRenderer
                 Indices = proxy.Attributes.Indices,
                 Uniforms = _uniforms,
                 VaryingsArray = VaryingsArray,
+                ShadowMap = _shadowMap.Buffer,
                 Width = _width,
                 Height = _height,
-                ColorBuffer = FrameBuffer.ColorBuffer.Buffer,
-                DepthBuffer = FrameBuffer.DepthBuffer.Buffer,
+                ColorBuffer = _colorBuffer.Buffer,
+                DepthBuffer = _depthBuffer.Buffer,
                 Renderred = Renderred,
             };
             var PSHandle = PS.Schedule(proxy.Attributes.Indices.Length, 2, VSHandle);
@@ -236,9 +191,22 @@ namespace MyRenderer
 
         public void Flush()
         {
-            Profiler.BeginSample("MyRenderer::Rasterizer::Flush");
+            Profiler.BeginSample("Rasterizer.Flush()");
 
-            FrameBuffer.Flush();
+            // var shadow = _shadowMap.Raw;
+            // var color = new Color[shadow.Length];
+            // {
+            //     for (int y = 0; y < _height; ++y)
+            //     {
+            //         for (int x = 0; x < _width; ++x)
+            //         {
+            //             int index = x + y * _width;
+            //             color[index] = new Color(shadow[index], 0, 0, 1);
+            //         }
+            //     }
+            // }
+            ScreenRT.SetPixels(_colorBuffer.Raw);
+            ScreenRT.Apply(false);
             StatsUpdate(_verticeCount, _triangleCount, _triangleAll);
 
             Profiler.EndSample();

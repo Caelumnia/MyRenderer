@@ -37,9 +37,9 @@ namespace MyRenderer.Shaders
             public void Execute(int index)
             {
                 var indice = Indices[index];
-                var v0 = CSPosArray[0];
-                var v1 = CSPosArray[1];
-                var v2 = CSPosArray[2];
+                var v0 = CSPosArray[indice[0]];
+                var v1 = CSPosArray[indice[1]];
+                var v2 = CSPosArray[indice[2]];
 
                 if (Common.Clipped(v0, v1, v2)) return;
 

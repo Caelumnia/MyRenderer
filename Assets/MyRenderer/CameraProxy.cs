@@ -40,8 +40,8 @@ namespace MyRenderer
             rect.sizeDelta = new Vector2(_width, _height);
             Debug.Log($"Screen size {_width}x{_height}");
 
-            _rasterizer = new Rasterizer(_width, _height, 1024);
-            rawImage.texture = _rasterizer.FrameBuffer.ScreenRT;
+            _rasterizer = new Rasterizer(_width, _height);
+            rawImage.texture = _rasterizer.ScreenRT;
 
             _stats = GetComponent<Stats>();
             if (_stats != null)
@@ -65,7 +65,7 @@ namespace MyRenderer
 
         private void Render()
         {
-            Profiler.BeginSample("MyRender::CameraProxy::Render");
+            Profiler.BeginSample("CameraProxy.Render()");
             
             _rasterizer.Clear();
             _rasterizer.SetupUniform(_camera, mainLight);

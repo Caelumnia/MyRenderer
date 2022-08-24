@@ -1,5 +1,7 @@
 ﻿using System;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
+using UnityEngine.Profiling;
 
 namespace MyRenderer
 {
@@ -12,7 +14,15 @@ namespace MyRenderer
         {
             get
             {
-                Buffer.CopyTo(_temp);
+                Profiler.BeginSample($"NativeBuffer<{typeof(T).Name}>.Raw()");
+                unsafe
+                {
+                    void* dest = UnsafeUtility.PinGCArrayAndGetDataAddress(_temp, out ulong handle);
+                    UnsafeUtility.MemCpy(dest, Buffer.GetUnsafePtr(), Buffer.Length * UnsafeUtility.SizeOf<T>());
+                    UnsafeUtility.ReleaseGCObject(handle);
+                }
+                Profiler.EndSample();
+
                 return _temp;
             }
         }
@@ -29,10 +39,20 @@ namespace MyRenderer
             _temp = null;
         }
 
+        public void Clear()
+        {
+            Profiler.BeginSample($"NativeBuffer<{typeof(T).Name}>.Clear()");
+            unsafe
+            {
+                UnsafeUtility.MemSet(Buffer.GetUnsafePtr(), 0, Buffer.Length * UnsafeUtility.SizeOf<T>());
+            }
+            Profiler.EndSample();
+        }
+
         public void Fill(T value)
         {
-            if (_temp.Length == 0) return;
-
+            Profiler.BeginSample($"NativeBuffer<{typeof(T).Name}>.Fill()");
+            
             int copyLength = 1;
             _temp[0] = value;
             while (copyLength <= _temp.Length / 2)
@@ -44,6 +64,8 @@ namespace MyRenderer
             Array.Copy(_temp, 0, _temp, copyLength, _temp.Length - copyLength);
 
             Buffer.CopyFrom(_temp);
+            
+            Profiler.EndSample();
         }
     }
 }

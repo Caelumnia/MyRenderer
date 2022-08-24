@@ -43,6 +43,7 @@ namespace MyRenderer.Shaders
             [ReadOnly] public UniformBuffer Uniforms;
             [ReadOnly] public NativeArray<Varyings> VaryingsArray;
             [ReadOnly] public int Width, Height;
+            [ReadOnly] public NativeArray<float> ShadowMap;
 
             [NativeDisableParallelForRestriction] public NativeArray<Color> ColorBuffer;
             [NativeDisableParallelForRestriction] public NativeArray<float> DepthBuffer;
@@ -104,7 +105,18 @@ namespace MyRenderer.Shaders
 
                         t.Interpolate(pixelPos, co * z, out var inpVert);
                         DepthBuffer[bufIndex] = pixelPos.z;
-                        ColorBuffer[bufIndex] = BlinnPhong(ref inpVert);
+
+                        var color = BlinnPhong(ref inpVert);
+                        var lightPos = math.mul(Uniforms.MatLightViewProj, new float4(inpVert.WSPos, 1.0f));
+                        lightPos.xy = (lightPos.xy + new float2(1.0f)) * screen;
+                        lightPos.z = lightPos.z * 0.5f + 0.5f;
+
+                        int smIndex = Common.GetIndex(Mathf.RoundToInt(lightPos.x), Mathf.RoundToInt(lightPos.y),
+                            Width);
+                        var lightDepth = smIndex >= ShadowMap.Length || smIndex < 0 ? 0.0f : ShadowMap[smIndex];
+                        if (lightPos.z < lightDepth) color *= 0.5f;
+
+                        ColorBuffer[bufIndex] = color;
                     }
                 }
 

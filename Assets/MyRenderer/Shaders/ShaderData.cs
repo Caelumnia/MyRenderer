@@ -17,9 +17,10 @@ namespace MyRenderer
 
         public float4x4 MatModel;
         public float4x4 MatView;
-        public float4x4 MatProjection;
+        public float4x4 MatProj;
+        public float4x4 MatLightViewProj;
 
-        public float4x4 MatMVP => math.mul(MatProjection, math.mul(MatView, MatModel));
+        public float4x4 MatMVP => math.mul(MatProj, math.mul(MatView, MatModel));
         public float4x4 MatNormal => math.transpose(math.inverse(MatModel));
     }
 
@@ -102,7 +103,7 @@ namespace MyRenderer
                     SSPos = new float4(pos[i], verts[i].CSPos.w),
                     WSPos = verts[i].WSPos,
                     WSNormal = verts[i].WSNormal,
-                    Color = new float4(1.0f - i / 3.0f),
+                    Color = new float4(1.0f),
                     TexCoord = verts[i].UV0,
                 };
             }
