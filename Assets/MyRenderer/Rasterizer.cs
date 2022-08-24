@@ -97,7 +97,7 @@ namespace MyRenderer
         public void SetupCamera(Camera camera)
         {
             _uniforms.MatView = GetViewMatrix(_uniforms.WSCameraPos, _uniforms.WSCameraLookAt, _uniforms.WSCameraUp);
-            float aspect = (float) _width / _height;
+            float aspect = (float)_width / _height;
             float near = camera.nearClipPlane;
             float far = camera.farClipPlane;
             if (camera.orthographic)

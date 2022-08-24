@@ -48,9 +48,9 @@ namespace MyRenderer
 
         private void OnGUI()
         {
-            GUI.Label(new Rect(10, 10, 200, 100), FPSText.text, _style);
-            GUI.Label(new Rect(10, 120, 200, 100), TrianglesText.text, _style);
-            GUI.Label(new Rect(10, 230, 200, 100), VerticesText.text, _style);
+            GUI.Label(new Rect(10, 10, 200, 20), FPSText.text, _style);
+            GUI.Label(new Rect(10, 35, 200, 20), TrianglesText.text, _style);
+            GUI.Label(new Rect(10, 60, 200, 20), VerticesText.text, _style);
         }
 
         public void UpdateStats(int vertices, int triangles, int totalTriangles)

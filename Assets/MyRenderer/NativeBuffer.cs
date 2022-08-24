@@ -21,6 +21,7 @@ namespace MyRenderer
                     UnsafeUtility.MemCpy(dest, Buffer.GetUnsafePtr(), Buffer.Length * UnsafeUtility.SizeOf<T>());
                     UnsafeUtility.ReleaseGCObject(handle);
                 }
+
                 Profiler.EndSample();
 
                 return _temp;
@@ -52,7 +53,7 @@ namespace MyRenderer
         public void Fill(T value)
         {
             Profiler.BeginSample($"NativeBuffer<{typeof(T).Name}>.Fill()");
-            
+
             int copyLength = 1;
             _temp[0] = value;
             while (copyLength <= _temp.Length / 2)
@@ -64,7 +65,7 @@ namespace MyRenderer
             Array.Copy(_temp, 0, _temp, copyLength, _temp.Length - copyLength);
 
             Buffer.CopyFrom(_temp);
-            
+
             Profiler.EndSample();
         }
     }

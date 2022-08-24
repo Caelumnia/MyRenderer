@@ -84,12 +84,14 @@ namespace MyRenderer.Shaders
                 var v1 = Verts1.CSPos;
                 var v2 = Verts2.CSPos;
 
+                // NDC culling
                 if (Common.Clipped(v0, v1, v2)) return;
 
                 v0.xyz /= v0.w;
                 v1.xyz /= v1.w;
                 v2.xyz /= v2.w;
 
+                // Backface culling
                 if (Common.Backface(v0.xyz, v1.xyz, v2.xyz)) return;
 
                 var screen = new float2(Width - 1, Height - 1) * 0.5f;
@@ -103,6 +105,7 @@ namespace MyRenderer.Shaders
                 var minCoord = new int2(Int32.MaxValue);
                 var maxCoord = new int2(Int32.MinValue);
 
+                // Triangle bounds in screen space
                 minCoord.x = Mathf.FloorToInt(math.min(v0.x, math.min(v1.x, v2.x)));
                 minCoord.y = Mathf.FloorToInt(math.min(v0.y, math.min(v1.y, v2.y)));
                 maxCoord.x = Mathf.CeilToInt(math.max(v0.x, math.max(v1.x, v2.x)));
@@ -115,10 +118,14 @@ namespace MyRenderer.Shaders
                 {
                     for (int x = minCoord.x; x < maxCoord.x; ++x)
                     {
+                        // Caclulate barycentric coordinate
                         float3 pixelPos = new float3(x + 0.5f, y + 0.5f, 0.0f);
                         var baryCoord = Common.ComputeBarycentric2D(pixelPos.x, pixelPos.y, v0.xyz, v1.xyz, v2.xyz);
+                        
+                        // Out of triangle, discard
                         if (baryCoord.x < -0.0005f || baryCoord.y < -0.0005f || baryCoord.z < -0.0005f) continue;
 
+                        // Perspective-correct interpolation
                         var ws = new float3(v0.w, v1.w, v2.w);
                         var zs = new float3(v0.z, v1.z, v2.z);
                         var co = baryCoord / ws;
@@ -126,6 +133,8 @@ namespace MyRenderer.Shaders
                         pixelPos.z = z * math.csum(co * zs);
 
                         int bufIndex = Common.GetIndex(x, y, Width);
+                        
+                        // Depth-test
                         if (pixelPos.z < DepthBuffer[bufIndex]) continue;
                         DepthBuffer[bufIndex] = pixelPos.z;
 
@@ -162,35 +171,8 @@ namespace MyRenderer.Shaders
                 float4 color = (ambient + diffuse + specular) * Uniforms.LightColor;
                 return new Color(color.x, color.y, color.z, color.w);
             }
-
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            private float3 GetLightPos(float3 WSPos, float2 viewport)
-            {
-                var pos = math.mul(Uniforms.MatLightViewProj, new float4(WSPos, 1.0f));
-                pos.xyz /= pos.w;
-                pos.xy = (pos.xy + new float2(1.0f)) * viewport;
-                pos.z = pos.z * 0.5f + 0.5f;
-                return pos.xyz;
-            }
-
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            private float SampleShadowMap(float2 pos, float depth)
-            {
-                var p0 = math.floor(pos);
-                var x0 = math.clamp((int) p0.x, 0, ShadowMapSize);
-                var y0 = math.clamp((int) p0.y, 0, ShadowMapSize);
-                var bias = 0.0003f;
-                return depth > ShadowMap[Common.GetIndex(x0, y0, ShadowMapSize)] - bias ? 1.0f : 0.0f;
-            }
-
-            private int GetRandomSampleIndex(float3 WSPos, int index)
-            {
-                var seed = new float4(WSPos, index);
-                var dot = math.dot(seed, new float4(12.9898f, 78.233f, 45.164f, 94.673f));
-                var rand = math.frac(math.sin(dot) * 43758.5453f);
-                return Mathf.RoundToInt(rand * 16.0f) % 16;
-            }
-
+            
+            // Sample 16 points in shadowmap, use 
             private float SampleShadowDepth(float3 WSPos)
             {
                 var lightPos = GetLightPos(WSPos, new float2(ShadowMapSize * 0.5f));
@@ -232,6 +214,35 @@ namespace MyRenderer.Shaders
                 depth += SampleShadowMap(samples15, lightPos.z);
 
                 return depth / 16.0f;
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            private float3 GetLightPos(float3 WSPos, float2 viewport)
+            {
+                var pos = math.mul(Uniforms.MatLightViewProj, new float4(WSPos, 1.0f));
+                pos.xyz /= pos.w;
+                pos.xy = (pos.xy + new float2(1.0f)) * viewport;
+                pos.z = pos.z * 0.5f + 0.5f;
+                return pos.xyz;
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            private float SampleShadowMap(float2 pos, float depth)
+            {
+                var p0 = math.floor(pos);
+                var x0 = math.clamp((int) p0.x, 0, ShadowMapSize);
+                var y0 = math.clamp((int) p0.y, 0, ShadowMapSize);
+                var bias = 0.0003f;
+                return depth > ShadowMap[Common.GetIndex(x0, y0, ShadowMapSize)] - bias ? 1.0f : 0.0f;
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            private int GetRandomSampleIndex(float3 WSPos, int index)
+            {
+                var seed = new float4(WSPos, index);
+                var dot = math.dot(seed, new float4(12.9898f, 78.233f, 45.164f, 94.673f));
+                var rand = math.frac(math.sin(dot) * 43758.5453f);
+                return Mathf.RoundToInt(rand * 16.0f) % 16;
             }
         }
     }
